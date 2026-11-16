@@ -1,0 +1,224 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Relay 代理台</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="titlebar">
+    <div class="brand"><img src="assets/icon.png" alt=""><span>RELAY</span><span class="brand-divider"></span><span class="brand-sub">本地代理台</span></div>
+    <span class="environment"><i></i> 本地工作空间</span>
+    <div class="window-actions">
+      <button id="minimize" title="最小化" aria-label="最小化">─</button>
+      <button id="maximize" title="最大化" aria-label="最大化">□</button>
+      <button id="close" class="close-window" title="关闭" aria-label="关闭">×</button>
+    </div>
+  </header>
+
+  <main class="app-layout">
+    <aside class="sidebar">
+      <div class="sidebar-heading"><div><h1 id="sidebar-title">代理服务</h1><p>让每一次请求，去向清晰。</p></div><span id="service-count" class="count-badge">0</span></div>
+      <div class="project-bar"><label class="project-label" for="project-select">当前项目</label><div class="project-row"><select id="project-select" aria-label="当前项目"></select><button id="project-add" class="icon-button" type="button" title="新建项目">＋</button><button id="project-rename" class="icon-button" type="button" title="重命名项目">改名</button><button id="project-delete" class="icon-button" type="button" title="删除项目">删除</button></div></div>
+      <button id="add-proxy" class="primary-button full-width"><span>＋</span> 新建代理</button>
+      <button id="open-global-headers" class="global-header-button"><span>⚙</span> 项目 Header <small>当前项目共用</small></button>
+      <button id="open-docs" class="global-header-button"><span>▤</span> 接口文档 <small>导入并生成 Mock</small></button>
+      <button id="open-ai" class="global-header-button"><span>✦</span> AI 设置 <small>全局</small></button>
+      <div id="kind-switch" class="mode-switch kind-switch"><button type="button" class="mode-btn active" data-kind="proxy">代理</button><button type="button" class="mode-btn" data-kind="mock">Mock 服务</button></div>
+      <div id="mock-io" class="mock-io hidden"><button id="mock-import" type="button" class="icon-button">导入 Mock 配置</button><button id="mock-export" type="button" class="icon-button">导出 Mock 配置</button></div>
+      <div class="search-box"><span>⌕</span><input id="proxy-search" type="search" placeholder="搜索名称、端口或地址" aria-label="搜索代理"></div>
+      <div class="list-caption"><span id="list-caption-label">全部代理</span> <span id="list-caption-count">0</span></div>
+      <div id="proxy-list" class="proxy-list"></div>
+      <div class="sidebar-footer"><div class="connection"><span class="live-dot"></span><div><strong>仅监听本机</strong><small>配置保存在当前电脑</small></div></div><span class="version">v2.0</span></div>
+    </aside>
+
+    <section class="workspace">
+      <div id="welcome" class="welcome">
+        <div class="welcome-art"><div class="orbit orbit-one"></div><div class="orbit orbit-two"></div><img src="assets/icon.png" alt="Relay"></div>
+        <p class="eyebrow">YOUR LOCAL TRAFFIC CONTROLLER</p>
+        <h2>给本地开发，一条清晰的路。</h2>
+        <p class="welcome-description">管理多个后端代理，解决跨域问题，查看完整请求链路。<br>不用改代码，也不用记住命令。</p>
+        <button id="welcome-add" class="primary-button">＋ 创建第一条代理</button>
+        <div class="welcome-features"><span><b>01</b> 填写地址与端口</span><i></i><span><b>02</b> 一键启动代理</span><i></i><span><b>03</b> 查看实时日志</span></div>
+      </div>
+
+      <div id="proxy-detail" class="proxy-detail hidden">
+        <div class="detail-header">
+          <div class="detail-title"><span id="detail-status" class="status-dot"></span><div><div class="title-line"><h2 id="detail-name"></h2><span id="status-label" class="status-label"></span></div><p id="detail-target"></p></div></div>
+          <div class="detail-actions"><button id="duplicate-mock" class="secondary-button hidden">复制</button><button id="edit-proxy" class="secondary-button">编辑配置</button><button id="toggle-proxy" class="primary-button">▶ 启动代理</button></div>
+        </div>
+
+        <div class="stats-grid">
+          <div class="stat"><span>本地端口</span><strong id="stat-port">—</strong><small>LISTENING PORT</small></div>
+          <div class="stat"><span>请求总数</span><strong id="stat-requests">0</strong><small>REQUESTS</small></div>
+          <div class="stat"><span>平均耗时</span><strong id="stat-duration">—</strong><small>AVG RESPONSE TIME</small></div>
+          <div class="stat"><span>异常请求</span><strong id="stat-errors">0</strong><small>FAILED REQUESTS</small></div>
+        </div>
+
+        <div class="route-card"><div class="route-label"><span id="route-title">转发规则</span> <span id="route-hint"></span></div><div class="route-flow"><div class="endpoint"><span class="method-tag">LOCAL</span><code id="local-url"></code><button id="copy-url" class="copy-button" title="复制本地地址">复制</button></div><div id="route-arrow" class="route-arrow">⟶</div><div id="route-target" class="endpoint target"><span class="method-tag">TARGET</span><code id="target-url"></code></div></div></div>
+
+        <div class="rules-panel">
+          <div class="rules-heading"><div><h3>接口规则 <span id="rules-count" class="count-badge">0</span></h3><p>未配置的接口默认正常代理；切为 Mock 后直接返回本地数据，不请求后端，保存即生效。</p></div><button id="add-rule" type="button" class="header-add">＋ 添加规则</button></div>
+          <div id="rules-list" class="rules-list"></div>
+          <div id="rules-empty" class="rules-empty">暂无规则，所有请求都会转发到真实后端。也可以在请求详情里点「转为 Mock 规则」。</div>
+        </div>
+
+        <div class="logs-panel">
+          <div class="logs-heading"><div><h3>实时日志 <span id="log-live"><i></i> LIVE</span></h3><p>记录请求路径、响应状态和转发异常</p></div><div class="log-tools"><select id="log-filter" aria-label="日志级别"><option value="all">全部级别</option><option value="success">成功</option><option value="info">信息</option><option value="warn">警告</option><option value="error">错误</option></select><input id="log-search" type="search" placeholder="筛选日志" aria-label="筛选日志"><button id="export-logs" class="icon-button" title="导出日志">导出</button><button id="clear-logs" class="icon-button" title="清空日志">清空</button></div></div>
+          <div class="log-table-head"><span>时间</span><span>级别</span><span>事件详情</span><span>耗时</span></div>
+          <div id="log-list" class="log-list"></div>
+          <div id="log-empty" class="log-empty"><div class="terminal-icon">›_</div><strong>等待第一条请求</strong><p>启动代理后，这里会实时显示请求与转发日志。</p></div>
+          <div class="logs-footer"><span id="log-count">0 条日志</span><span>最多保留最近 5,000 条</span></div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <div id="modal-backdrop" class="modal-backdrop hidden">
+    <section class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+      <div class="modal-header"><div><span class="eyebrow">PROXY CONFIGURATION</span><h2 id="modal-title">新建代理</h2></div><button id="close-modal" class="modal-close" aria-label="关闭">×</button></div>
+      <form id="proxy-form">
+        <label>代理名称 <span>必填</span><input id="proxy-name" required maxlength="40" placeholder="例如：AI 管理后台"></label>
+        <label>本机 IP <span>默认 localhost</span><input id="proxy-host" list="local-ips" placeholder="localhost" autocomplete="off"><datalist id="local-ips"></datalist><small>代理监听的地址。后端需通过本机 IPv4 访问时，填该 IPv4（或 0.0.0.0）；localhost 仅本机可访问。</small></label>
+        <div class="form-row"><label>本地端口 <span>1–65535</span><input id="proxy-port" type="number" required min="1" max="65535" value="8009"></label><label class="prefix-field" data-proxy-only>路径前缀 <span>例如 /cgw/aiadmin</span><input id="proxy-prefix" required placeholder="/cgw/aiadmin"></label></div>
+        <label data-proxy-only>后端地址 <span>包含协议，末尾不带 /</span><input id="proxy-target" required placeholder="http://10.0.7.33:8106"><small>支持 HTTP / HTTPS；请求路径和查询参数会原样保留。</small></label>
+        <label class="toggle-row" data-proxy-only><div><strong>自定义请求 Header</strong><small>Token、Cookie 等，转发时覆盖浏览器中的同名值</small></div><button id="add-header" type="button" class="header-add">＋ 添加</button></label>
+        <div id="headers-editor" class="headers-editor" data-proxy-only></div>
+        <div id="headers-empty" class="headers-empty" data-proxy-only>未添加 Header，将保持浏览器原有请求头。</div>
+        <label class="toggle-row" data-proxy-only><div><strong>去掉路径前缀</strong><small>/cgw/aiadmin/user → /user</small></div><input id="strip-prefix" type="checkbox" class="switch" checked></label>
+        <label class="toggle-row"><div><strong>打开应用时自动启动</strong><small>端口被占用时会记录启动失败日志</small></div><input id="auto-start" type="checkbox" class="switch"></label>
+        <div class="cors-notice"><span>✓</span><div><strong>跨域处理已内置</strong><small>自动响应 OPTIONS 预检，并允许 Content-Type、Authorization 等请求头。</small></div></div>
+        <div id="form-error" class="form-error hidden"></div>
+        <div class="modal-actions"><button id="delete-proxy" type="button" class="danger-button hidden">删除代理</button><span class="action-spacer"></span><button type="button" id="cancel-modal" class="secondary-button">取消</button><button type="submit" id="save-proxy" class="primary-button">保存配置</button></div>
+      </form>
+    </section>
+  </div>
+  <div id="trace-backdrop" class="trace-backdrop hidden">
+    <aside class="trace-drawer" role="dialog" aria-modal="true" aria-labelledby="trace-title">
+      <div class="trace-header"><div><span class="eyebrow">REQUEST INSPECTOR</span><h2 id="trace-title">请求详情</h2></div><button id="close-trace" class="modal-close" aria-label="关闭详情">×</button></div>
+      <div id="trace-loading" class="trace-loading">正在读取请求链路…</div>
+      <div id="trace-content" class="trace-content hidden">
+        <div id="trace-summary" class="trace-summary"></div>
+        <div id="trace-source" class="trace-source hidden"><span id="trace-source-label"></span></div>
+        <div class="trace-privacy"><span>敏感 Header 默认隐藏</span><button id="toggle-sensitive">显示敏感信息</button></div>
+        <section class="trace-section"><div class="trace-section-title"><h3>请求</h3><button class="trace-copy" data-copy="request">复制请求信息</button></div><div id="trace-request-meta" class="trace-meta"></div><h4>请求头 · 实际发送</h4><div id="trace-request-headers" class="header-table"></div><div class="trace-body-title"><h4>请求体</h4><span id="trace-request-size"></span></div><pre id="trace-request-body" class="body-preview"></pre></section>
+        <section class="trace-section"><div class="trace-section-title"><h3>响应</h3><div class="trace-actions"><button id="trace-to-mock" type="button" class="header-add hidden">✦ 生成 Mock</button><button class="trace-copy" data-copy="response">复制响应信息</button></div></div><div id="trace-response-meta" class="trace-meta"></div><h4>响应头</h4><div id="trace-response-headers" class="header-table"></div><div class="trace-body-title"><h4>响应体</h4><span id="trace-response-size"></span></div><pre id="trace-response-body" class="body-preview"></pre></section>
+      </div>
+    </aside>
+  </div>
+  <div id="global-backdrop" class="modal-backdrop hidden">
+    <section class="modal global-modal" role="dialog" aria-modal="true" aria-labelledby="global-title">
+      <div class="modal-header"><div><span class="eyebrow">PROJECT REQUEST HEADERS</span><h2 id="global-title">项目 Header</h2></div><button id="close-global" class="modal-close" aria-label="关闭">×</button></div>
+      <p class="global-description">应用到当前项目所有代理的请求，不影响其他项目。正在运行的代理无需重启，保存后立即生效。</p>
+      <div class="global-inheritance">浏览器原值 <b>→</b> 项目 Header <b>→</b> 单代理 Header <span>同名时后者覆盖前者</span></div>
+      <div class="global-editor-heading"><strong>公共请求头</strong><button id="add-global-header" type="button" class="header-add">＋ 添加</button></div>
+      <div id="global-headers-editor" class="headers-editor"></div>
+      <div id="global-headers-empty" class="headers-empty">尚未设置项目 Header。</div>
+      <div class="global-example">例如：<code>Authorization</code> = <code>Bearer your-token</code><br><code>Cookie</code> = <code>token=abc; userId=42</code></div>
+      <div id="global-error" class="form-error hidden"></div>
+      <div class="modal-actions"><span class="action-spacer"></span><button id="cancel-global" class="secondary-button" type="button">取消</button><button id="save-global" class="primary-button" type="button">保存并应用</button></div>
+    </section>
+  </div>
+  <div id="project-backdrop" class="modal-backdrop hidden">
+    <section class="modal global-modal" role="dialog" aria-modal="true" aria-labelledby="project-title">
+      <div class="modal-header"><div><span class="eyebrow">PROJECT</span><h2 id="project-title">新建项目</h2></div><button id="close-project" class="modal-close" type="button" aria-label="关闭">×</button></div>
+      <form id="project-form">
+        <label>项目名称 <span>1–40 个字符</span><input id="project-name" required maxlength="40" placeholder="例如：患者管理系统"></label>
+        <div id="project-error" class="form-error hidden"></div>
+        <div class="modal-actions"><span class="action-spacer"></span><button type="button" id="cancel-project" class="secondary-button">取消</button><button type="submit" id="save-project" class="primary-button">保存</button></div>
+      </form>
+    </section>
+  </div>
+  <div id="rule-backdrop" class="modal-backdrop hidden">
+    <section class="modal rule-modal" role="dialog" aria-modal="true" aria-labelledby="rule-title">
+      <div class="modal-header"><div><span class="eyebrow">INTERFACE RULE</span><h2 id="rule-title">添加接口规则</h2></div><button id="close-rule" class="modal-close" type="button" aria-label="关闭">×</button></div>
+      <form id="rule-form">
+        <div class="form-row"><label>请求方法<select id="rule-method"><option>GET</option><option>POST</option><option>PUT</option><option>PATCH</option><option>DELETE</option><option>HEAD</option><option>OPTIONS</option><option value="ANY">ANY（任意方法）</option></select></label><label>接口路径 <span>去掉代理前缀；支持 :id 和末尾 *</span><input id="rule-path" required placeholder="/patient/detail/:id"></label></div>
+        <div class="form-row"><label id="rule-mode-field">当前模式<select id="rule-mode"><option value="mock">Mock（返回本地数据）</option><option value="proxy">代理（转发到后端）</option></select></label><label class="toggle-row"><div><strong>启用此规则</strong><small>停用后等同未配置，接口正常代理</small></div><input id="rule-enabled" type="checkbox" class="switch" checked></label></div>
+        <div id="rule-response-fields">
+          <div class="scenario-bar">
+            <div class="form-row"><label>Mock 场景<select id="rule-scenario"></select></label><label>场景名称 <span>1–30 个字符</span><input id="rule-scenario-name" maxlength="30"></label></div>
+            <label class="toggle-row"><div><strong>当前启用此场景</strong><small>同一接口同一时刻只启用一个场景；各场景的状态码、Header、Body、延迟互相独立</small></div><input id="rule-scenario-active" type="checkbox" class="switch"></label>
+            <div class="scenario-actions"><button id="rule-scenario-add" type="button" class="header-add">＋ 新增场景（复制当前内容）</button><button id="rule-scenario-delete" type="button" class="header-add">删除此场景</button></div>
+          </div>
+          <div class="form-row"><label>状态码 <span>200–599</span><input id="rule-status" type="number" min="200" max="599" value="200"></label><label>响应延迟（毫秒） <span>0–30000</span><input id="rule-delay" type="number" min="0" max="30000" value="0"></label></div>
+          <label class="toggle-row"><div><strong>响应 Header</strong><small>CORS 已自动处理；Content-Length 等由服务端生成</small></div><button id="add-rule-header" type="button" class="header-add">＋ 添加</button></label>
+          <div id="rule-headers-editor" class="headers-editor"></div>
+          <div id="rule-headers-empty" class="headers-empty">未添加 Header；Body 为 JSON 时自动使用 application/json。</div>
+          <label>响应 Body <span><button id="rule-format" type="button" class="link-button">格式化 JSON</button></span><textarea id="rule-body" rows="9" spellcheck="false" placeholder='{"code":0,"data":{}}'></textarea></label>
+          <div class="rule-ai-row"><button id="rule-ai-template" type="button" class="header-add">✦ AI 把当前内容改写成模板</button><button id="rule-ai-regenerate" type="button" class="header-add hidden">✦ AI 按文档重新生成</button></div>
+          <div id="rule-ai-candidate" class="hidden">
+            <div class="global-editor-heading"><strong id="rule-ai-title">AI 候选结果</strong><span><button id="rule-ai-accept" type="button" class="header-add">采用</button> <button id="rule-ai-discard" type="button" class="header-add">放弃</button></span></div>
+            <pre id="rule-ai-result" class="body-preview"></pre>
+          </div>
+          <label class="toggle-row"><div><strong>动态数据（占位符）</strong><small>开启后，Body 中的占位符每次请求都会渲染成不同的值；关闭则原样返回</small></div><input id="rule-dynamic" type="checkbox" class="switch"></label>
+          <div id="rule-dynamic-tools" class="hidden">
+            <div class="global-example"><code>{{uuid}}</code> <code>{{name}}</code> <code>{{phone}}</code> <code>{{email}}</code> <code>{{city}}</code> <code>{{bool}}</code> <code>{{int 1 100}}</code> <code>{{float 0 1 2}}</code> <code>{{date -30 0}}</code> <code>{{datetime}}</code> <code>{{pick 男 女}}</code> <code>{{text 20}}</code> <code>{{seq}}</code> <code>{{params.id}}</code> <code>{{query.page}}</code><br>整段写成占位符时保留类型（<code>"{{int 1 9}}"</code> 输出数字）。数组第一个元素写 <code>"{{repeat 3 8}}"</code>，其后的元素会重复生成 3–8 轮。</div>
+            <div class="global-editor-heading"><strong>渲染预览</strong><button id="rule-preview" type="button" class="header-add">预览一次</button></div>
+            <pre id="rule-preview-result" class="body-preview hidden"></pre>
+          </div>
+        </div>
+        <label>备注 <span>可选</span><input id="rule-note" maxlength="200" placeholder="例如：后端 500，临时本地调试"></label>
+        <div id="rule-error" class="form-error hidden"></div>
+        <div class="modal-actions"><button id="delete-rule" type="button" class="danger-button hidden">删除规则</button><span class="action-spacer"></span><button type="button" id="cancel-rule" class="secondary-button">取消</button><button type="submit" id="save-rule" class="primary-button">保存规则</button></div>
+      </form>
+    </section>
+  </div>
+  <div id="ai-backdrop" class="modal-backdrop hidden">
+    <section class="modal global-modal" role="dialog" aria-modal="true" aria-labelledby="ai-title">
+      <div class="modal-header"><div><span class="eyebrow">AI ASSISTANT</span><h2 id="ai-title">AI 设置</h2></div><button id="close-ai" class="modal-close" type="button" aria-label="关闭">×</button></div>
+      <p class="global-description">AI 只用于生成 Mock 数据或模板，生成结果需你确认后才会保存；Mock 运行时不会调用 AI。API Key 加密保存在本机，不会写入日志或导出文件。</p>
+      <form id="ai-form">
+        <div class="form-row"><label>接口类型<select id="ai-provider"><option value="openai">OpenAI 兼容</option><option value="anthropic">Anthropic</option></select></label><label>API 地址 <span>例如 https://api.openai.com/v1</span><input id="ai-base-url" placeholder="https://api.openai.com/v1"></label></div>
+        <div class="form-row"><label>超时（秒） <span>5–300</span><input id="ai-timeout" type="number" min="5" max="300" value="60"></label><label>模型名称<input id="ai-model" placeholder="例如 gpt-4o-mini"></label></div>
+        <label>API Key <span id="ai-key-state"></span><input id="ai-key" type="password" autocomplete="off" placeholder="留空表示不修改"></label>
+        <label>自定义生成提示词 <span>可选</span><textarea id="ai-prompt" rows="3" placeholder="例如：数据使用医疗行业场景，姓名用中文"></textarea></label>
+        <div id="ai-status" class="global-example hidden"></div>
+        <div id="ai-error" class="form-error hidden"></div>
+        <div class="modal-actions"><button id="ai-clear-key" type="button" class="danger-button">清除密钥</button><span class="action-spacer"></span><button id="ai-test" type="button" class="secondary-button">保存并测试连接</button><button id="ai-cancel" type="button" class="secondary-button">取消</button><button type="submit" id="ai-save" class="primary-button">保存</button></div>
+      </form>
+    </section>
+  </div>
+  <div id="docs-backdrop" class="modal-backdrop hidden">
+    <section class="modal docs-modal" role="dialog" aria-modal="true" aria-labelledby="docs-title">
+      <div class="modal-header"><div><span class="eyebrow">API DOCUMENTS</span><h2 id="docs-title">接口文档</h2></div><button id="close-docs" class="modal-close" type="button" aria-label="关闭">×</button></div>
+      <div class="docs-toolbar"><select id="docs-import-kind" aria-label="文档类型"><option value="openapi">Swagger / OpenAPI（JSON、YAML）</option><option value="markdown">Markdown（本地识别）</option><option value="markdown-ai">Markdown（AI 提取）</option></select><button id="docs-import" type="button" class="primary-button">导入文档</button><span class="action-spacer"></span><select id="docs-select" aria-label="已导入的文档"></select><button id="docs-delete" type="button" class="danger-button">删除文档</button></div>
+      <div id="docs-summary" class="global-example"></div>
+      <div id="docs-body" class="hidden">
+        <div class="docs-list-tools"><label class="docs-check-all"><input id="docs-check-all" type="checkbox"> 全选</label><input id="docs-filter" type="search" placeholder="筛选路径或说明" aria-label="筛选接口"><span id="docs-count"></span></div>
+        <div id="docs-endpoints" class="doc-table"></div>
+        <div class="docs-generate">
+          <label>保存到<select id="docs-target"></select></label>
+          <label>生成方式<select id="docs-gen-mode"><option value="local-static">本地 · 固定样例</option><option value="local-dynamic">本地 · 动态模板（随机数据）</option><option value="ai-static">AI · 固定样例</option><option value="ai-dynamic">AI · 动态模板（随机数据）</option></select></label>
+          <button id="docs-generate" type="button" class="primary-button">生成预览</button>
+          <button id="docs-stop" type="button" class="danger-button hidden">取消生成</button>
+        </div>
+        <div id="docs-progress" class="docs-progress hidden"></div>
+        <div id="docs-preview" class="hidden">
+          <div class="global-editor-heading"><strong>预览（可直接修改，确认后才会保存）</strong><span><select id="docs-conflict" aria-label="已存在的接口"><option value="skip">已存在的接口：跳过</option><option value="overwrite">已存在的接口：覆盖</option></select></span></div>
+          <div id="docs-drafts" class="doc-drafts"></div>
+          <div id="docs-error" class="form-error hidden"></div>
+          <div class="modal-actions"><span class="action-spacer"></span><button id="docs-discard" type="button" class="secondary-button">放弃</button><button id="docs-apply" type="button" class="primary-button">确认保存</button></div>
+        </div>
+      </div>
+    </section>
+  </div>
+  <div id="tm-backdrop" class="modal-backdrop hidden">
+    <section class="modal rule-modal" role="dialog" aria-modal="true" aria-labelledby="tm-title">
+      <div class="modal-header"><div><span class="eyebrow">MOCK FROM RESPONSE</span><h2 id="tm-title">把这次响应生成为 Mock</h2></div><button id="close-tm" class="modal-close" type="button" aria-label="关闭">×</button></div>
+      <div id="tm-summary" class="global-example"></div>
+      <div class="form-row"><label>保存到<select id="tm-target"></select></label><label>生成方式<select id="tm-mode"><option value="fixed">固定数据（原样）</option><option value="dynamic">动态模板（本地，按字段名随机化）</option><option value="ai">AI 改写成模板</option></select></label></div>
+      <div class="form-row"><label>状态码<input id="tm-status" type="number" min="200" max="599"></label><label>接口路径 <span>可把具体 ID 改成 :id，让所有 ID 都命中</span><input id="tm-path"></label></div>
+      <label>响应 Body <span>可直接修改</span><textarea id="tm-body" rows="10" spellcheck="false"></textarea></label>
+      <div id="tm-existing" class="global-example hidden"></div>
+      <label class="toggle-row"><div><strong>创建后立即启用</strong><small>启用后这个接口会直接返回本地数据，不再请求后端；不勾选则只创建、保持停用</small></div><input id="tm-enable" type="checkbox" class="switch" checked></label>
+      <div id="tm-error" class="form-error hidden"></div>
+      <div class="modal-actions"><button id="tm-regen" type="button" class="secondary-button">重新生成</button><span class="action-spacer"></span><button id="tm-cancel" type="button" class="secondary-button">取消</button><button id="tm-save" type="button" class="primary-button">创建 Mock</button></div>
+    </section>
+  </div>
+  <div id="toast" class="toast hidden"></div>
+  <script src="app.js"></script>
+</body>
+</html>

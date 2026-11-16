@@ -1,0 +1,55 @@
+# 推送 v* 标签时：在 Windows 上测试 → 打包便携版 exe → 创建 GitHub Release 并上传。
+# 发版：先改 package.json 的 version，提交后执行
+#   git tag v2.0.1 && git push origin v2.0.1
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write # 创建 Release、上传附件
+
+jobs:
+  release:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: 校验标签与 package.json 版本一致
+        run: |
+          TAG="${GITHUB_REF_NAME#v}"
+          VERSION="$(node -p "require('./package.json').version")"
+          echo "tag=$TAG package.json=$VERSION"
+          if [ "$TAG" != "$VERSION" ]; then
+            echo "::error::标签 v$TAG 与 package.json 的 version $VERSION 不一致，请先修改 version 再打标签。"
+            exit 1
+          fi
+
+      - name: 安装依赖
+        run: npm ci
+
+      - name: 测试
+        run: npm test
+
+      - name: 打包便携版
+        run: npm run dist -- --publish never
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false' # 未配置代码签名证书，跳过签名
+
+      - name: 创建 Release 并上传 exe
+        run: |
+          ls -la dist
+          gh release create "$GITHUB_REF_NAME" dist/*.exe \
+            --title "Relay 代理台 $GITHUB_REF_NAME" \
+            --generate-notes
+        env:
+          GH_TOKEN: ${{ github.token }}

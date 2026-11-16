@@ -1,0 +1,53 @@
+{
+  "name": "relay-proxy-manager",
+  "version": "2.0.0",
+  "private": true,
+  "description": "多代理、实时日志的本地开发代理管理器",
+  "homepage": "https://github.com/MrGgao-m/relay-proxy-manager",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/MrGgao-m/relay-proxy-manager.git"
+  },
+  "main": "src/main.js",
+  "author": "MrGgao-m (https://github.com/MrGgao-m)",
+  "license": "MIT",
+  "scripts": {
+    "start": "electron .",
+    "test": "node --test test/proxy-manager.test.js test/rules.test.js test/template.test.js test/store.test.js test/mock-io.test.js test/mock.test.js test/docs.test.js test/ai.test.js test/main-ipc.test.js test/docs-ai-ipc.test.js test/e2e.test.js",
+    "test:ui": "node test/electron-smoke.js",
+    "pack": "electron-builder --dir",
+    "dist": "electron-builder --win portable --config.electronDist=node_modules/electron/dist",
+    "test:ui:v2": "node test/electron-v2-smoke.js"
+  },
+  "build": {
+    "appId": "local.relay.proxy",
+    "productName": "Relay 代理台",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "src/**/*",
+      "renderer/**/*",
+      "package.json"
+    ],
+    "win": {
+      "target": "portable",
+      "icon": "build/icon.ico",
+      "artifactName": "Relay-Proxy-${version}.${ext}"
+    }
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "ajv": "^8.20.0",
+    "express": "^5.1.0",
+    "http-proxy-middleware": "^3.0.5",
+    "js-yaml": "^4.3.2"
+  },
+  "devDependencies": {
+    "electron": "^45.1.0",
+    "electron-builder": "^26.18.0",
+    "sharp": "^0.35.5"
+  }
+}

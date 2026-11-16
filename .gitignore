@@ -1,0 +1,14 @@
+# 依赖
+node_modules/
+
+# 打包产物（npm run dist / npm run pack）
+dist/
+*.tmp
+
+# 界面冒烟测试生成的截图、手工调试用的 Electron 配置目录
+test/*.png
+test/*-profile*/
+
+# 本地资料，不随项目发布
+output/
+.workbuddy/
