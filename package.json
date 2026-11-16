@@ -16,6 +16,7 @@
     "test": "node --test test/proxy-manager.test.js test/rules.test.js test/template.test.js test/store.test.js test/mock-io.test.js test/mock.test.js test/docs.test.js test/ai.test.js test/main-ipc.test.js test/docs-ai-ipc.test.js test/e2e.test.js",
     "test:ui": "node test/electron-smoke.js",
     "pack": "electron-builder --dir",
+    "predist": "node node_modules/electron/install.js",
     "dist": "electron-builder --win portable --config.electronDist=node_modules/electron/dist",
     "test:ui:v2": "node test/electron-v2-smoke.js"
   },
