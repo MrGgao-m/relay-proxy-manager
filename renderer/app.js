@@ -29,7 +29,7 @@ function handleError(err) { toast(err.message, true); }
 function renderList() {
   const query = state.search.toLowerCase();
   const items = listItems();
-  const filtered = items.filter((p) => `${p.name} ${p.port} ${p.target || ''}`.toLowerCase().includes(query));
+  const filtered = items.filter((p) => `${p.name} ${p.port} ${p.target || ''} ${p.activeEnv || ''}`.toLowerCase().includes(query));
   $('service-count').textContent = items.length;
   $('list-caption-count').textContent = filtered.length;
   $('proxy-list').innerHTML = filtered.length ? filtered.map((proxy) => {
@@ -37,7 +37,7 @@ function renderList() {
     return `<div class="proxy-card${proxy.id === state.selectedId ? ' selected' : ''}" data-id="${proxy.id}" role="button" tabindex="0">
       <div class="proxy-card-title"><span class="status-dot${isRunning ? ' running' : ''}"></span><span>${escapeHtml(proxy.name)}</span></div>
       <div class="proxy-card-route">:${proxy.port} <span>→</span> ${isMock(proxy) ? 'Mock' : escapeHtml(proxy.prefix)}</div>
-      <div class="proxy-card-target">${isMock(proxy) ? `独立 Mock 服务 · ${proxy.rules.length} 个接口` : escapeHtml(proxy.target)}</div>
+      <div class="proxy-card-target">${isMock(proxy) ? `独立 Mock 服务 · ${proxy.rules.length} 个接口` : escapeHtml(proxy.target)}${proxy.activeEnv ? ` · ${escapeHtml(proxy.activeEnv)}` : ''}</div>
       <div class="proxy-card-bottom"><span class="proxy-status${isRunning ? ' running' : ''}">${isRunning ? '● 运行中' : '○ 已停止'}</span><button class="mini-start" data-action="${isRunning ? 'stop' : 'start'}" data-id="${proxy.id}">${isRunning ? '停止' : '启动'} ${isRunning ? '■' : '▶'}</button></div>
     </div>`;
   }).join('') : `<div class="list-empty">${items.length ? `没有符合条件的${state.kind === 'mock' ? ' Mock 服务' : '代理'}` : (state.kind === 'mock' ? '还没有 Mock 服务<br>点击上方「新建 Mock 服务」开始' : '还没有代理<br>点击上方「新建代理」开始')}</div>`;
@@ -60,10 +60,14 @@ function renderDetail() {
   const target = mock ? '' : `${proxy.target}${proxy.stripPrefix ? '' : proxy.prefix}`;
   $('detail-name').textContent = proxy.name;
   $('detail-target').textContent = mock ? '独立 Mock 服务 · 无需后端' : proxy.target;
+  const envs = mock ? [] : (proxy.environments || []);
+  $('env-switch').classList.toggle('hidden', !envs.length);
+  $('env-select').innerHTML = envs.map((e) => `<option value="${escapeHtml(e.name)}"${e.name === proxy.activeEnv ? ' selected' : ''}>${escapeHtml(e.name)}</option>`).join('');
   $('route-title').textContent = mock ? 'Mock 服务地址' : '转发规则';
   $('route-arrow').classList.toggle('hidden', mock);
   $('route-target').classList.toggle('hidden', mock);
   $('duplicate-mock').classList.toggle('hidden', !mock);
+  $('debug-open').classList.toggle('hidden', mock); // Mock 服务直接返回本地数据，没有后端可调试
   $('detail-status').className = `status-dot${isRunning ? ' running' : ''}`;
   $('status-label').textContent = isRunning ? '运行中' : '未运行';
   $('status-label').className = `status-label${isRunning ? ' running' : ''}`;
@@ -156,6 +160,179 @@ function scenarioSelect(rule) {
   return `<select class="scenario-select" data-rule-action="scenario" title="切换 Mock 场景" aria-label="Mock 场景">${all.map((s) => `<option value="${escapeHtml(s.id)}"${s.id === rule.scenario.id ? ' selected' : ''}>${escapeHtml(s.name)}</option>`).join('')}</select>`;
 }
 
+// ---------- 接口调试（类似 Apifox：自定义参数，发送真实请求，看后端的具体响应）----------
+const debugSession = { params: {}, drafts: {}, last: null };
+
+function debugRows(editorId) {
+  return [...$(editorId).querySelectorAll('.header-row')].map((row) => ({
+    name: row.querySelector('.header-name').value,
+    value: row.querySelector('.header-value').value,
+    enabled: row.querySelector('.header-enabled').checked,
+  }));
+}
+/** 路径里的 :id 与末尾的 * 都是需要填写的参数。 */
+function debugParamNames(path) {
+  return path.split('?')[0].split('/').filter((seg) => /^:[A-Za-z0-9_]+$/.test(seg) || seg === '*').map((seg) => (seg === '*' ? '*' : seg.slice(1)));
+}
+function debugResolvedPath() {
+  return $('debug-path').value.trim().split('/').map((seg) => {
+    const name = seg === '*' ? '*' : /^:[A-Za-z0-9_]+$/.test(seg) ? seg.slice(1) : null;
+    const value = name === null ? '' : debugSession.params[name];
+    if (name === null || !value) return seg;
+    return name === '*' ? value : encodeURIComponent(value);
+  }).join('/');
+}
+function debugEnvTarget(proxy) {
+  const env = (proxy.environments || []).find((e) => e.name === $('debug-env').value);
+  return env ? env.target : proxy.target;
+}
+function renderDebugParams() {
+  const names = debugParamNames($('debug-path').value);
+  $('debug-params-block').classList.toggle('hidden', !names.length);
+  $('debug-params').innerHTML = names.map((name) => `<div class="debug-param"><code>${name === '*' ? '* （通配）' : `:${escapeHtml(name)}`}</code><input data-param="${escapeHtml(name)}" value="${escapeHtml(debugSession.params[name] || '')}" placeholder="填写参数值" aria-label="路径参数 ${escapeHtml(name)}" autocomplete="off"></div>`).join('');
+}
+function updateDebugUrl() {
+  const proxy = selected();
+  if (!proxy) return;
+  const query = new URLSearchParams();
+  debugRows('debug-query').filter((r) => r.enabled && r.name.trim()).forEach((r) => query.append(r.name.trim(), r.value));
+  const qs = query.toString();
+  $('debug-url').textContent = `${$('debug-method').value} ${debugEnvTarget(proxy)}${proxy.stripPrefix ? '' : proxy.prefix}${debugResolvedPath()}${qs ? `?${qs}` : ''}`;
+}
+function syncDebugBody() {
+  const noBody = ['GET', 'HEAD'].includes($('debug-method').value);
+  $('debug-body-type').closest('.form-row').classList.toggle('hidden', noBody);
+  $('debug-body-field').classList.toggle('hidden', $('debug-body-type').value === 'none');
+  $('debug-format').classList.toggle('hidden', $('debug-body-type').value !== 'json');
+}
+function saveDebugDraft() {
+  const proxy = selected();
+  if (!proxy) return;
+  debugSession.drafts[proxy.id] = {
+    env: $('debug-env').value, method: $('debug-method').value, path: $('debug-path').value, params: { ...debugSession.params },
+    query: debugRows('debug-query'), headers: debugRows('debug-headers'), useProxyHeaders: $('debug-use-proxy-headers').checked,
+    bodyType: $('debug-body-type').value, body: $('debug-body').value,
+  };
+}
+function fillDebug(draft) {
+  const proxy = selected();
+  const envs = proxy.environments || [];
+  $('debug-env').innerHTML = envs.length ? envs.map((e) => `<option value="${escapeHtml(e.name)}">${escapeHtml(e.name)}</option>`).join('') : '<option value="">默认后端</option>';
+  $('debug-env').value = envs.some((e) => e.name === draft.env) ? draft.env : (proxy.activeEnv || '');
+  $('debug-method').value = draft.method;
+  $('debug-path').value = draft.path;
+  debugSession.params = { ...draft.params };
+  $('debug-query').innerHTML = '';
+  $('debug-headers').innerHTML = '';
+  draft.query.forEach((row) => addHeaderRow(row, 'debug-query', 'debug-query-empty', ['page', '1']));
+  draft.headers.forEach((row) => addHeaderRow(row, 'debug-headers', 'debug-headers-empty'));
+  $('debug-query-empty').classList.toggle('hidden', draft.query.length > 0);
+  $('debug-headers-empty').classList.toggle('hidden', draft.headers.length > 0);
+  $('debug-use-proxy-headers').checked = draft.useProxyHeaders;
+  $('debug-body-type').value = draft.bodyType;
+  $('debug-body').value = draft.body;
+  renderDebugParams();
+  syncDebugBody();
+  updateDebugUrl();
+}
+function openDebug(rule = null) {
+  const proxy = selected();
+  if (!proxy || isMock(proxy)) return;
+  const method = rule ? (rule.method === 'ANY' ? 'GET' : rule.method) : 'GET';
+  const saved = debugSession.drafts[proxy.id];
+  // 从某条规则进入：以这条规则的方法和路径为准，之前调过同一个接口就恢复上次填的参数；从「接口调试」按钮进入：恢复上次的内容
+  const restore = saved && (rule ? saved.path === rule.path && saved.method === method : true);
+  fillDebug(restore ? saved : {
+    env: proxy.activeEnv || '', method, path: rule ? rule.path : '/', params: {}, query: [], headers: [], useProxyHeaders: true,
+    bodyType: ['POST', 'PUT', 'PATCH'].includes(method) ? 'json' : 'none', body: '',
+  });
+  $('debug-error').classList.add('hidden');
+  $('debug-result').classList.add('hidden');
+  $('debug-title').textContent = rule ? `接口调试 · ${rule.method} ${rule.path}` : '接口调试';
+  $('debug-backdrop').classList.remove('hidden');
+}
+function closeDebug() { $('debug-backdrop').classList.add('hidden'); }
+
+function debugHeaderLines(list) {
+  if (!list.length) return '<div class="headers-empty">无</div>';
+  return `<div class="header-table">${list.map((h) => {
+    const sensitive = sensitiveHeaders.has(h.name.toLowerCase());
+    return `<div class="header-line${sensitive ? ' sensitive' : ''}"><span>${escapeHtml(h.name)}</span><span>${escapeHtml(sensitive && !state.showSensitive ? '•••••••••••• 已隐藏' : h.value)}</span></div>`;
+  }).join('')}</div>`;
+}
+function debugSize(bytes) { return bytes < 1024 ? `${bytes} B` : bytes < 1048576 ? `${(bytes / 1024).toFixed(1)} KB` : `${(bytes / 1048576).toFixed(1)} MB`; }
+function renderDebugResult() {
+  const r = debugSession.last;
+  if (!r) return;
+  const { request: req, response: res } = r;
+  let html = '<div class="trace-privacy"><span>敏感 Header 默认隐藏</span><button id="debug-toggle-sensitive" type="button">' + (state.showSensitive ? '隐藏敏感信息' : '显示敏感信息') + '</button></div>';
+  if (r.error) {
+    html += `<div class="form-error"><strong>请求失败</strong>：${escapeHtml(r.error.message)}<br><small>${escapeHtml(req.method)} ${escapeHtml(req.url)} · ${r.durationMs} ms</small></div>`;
+  } else {
+    const kind = res.status >= 400 ? 'bad' : res.status >= 300 ? 'redirect' : 'ok';
+    html += `<div class="debug-status ${kind}"><strong>${res.status}</strong>${escapeHtml(res.statusText)}<span>· ${r.durationMs} ms · ${debugSize(res.size)}${res.truncated ? '（超过 1 MB，仅显示前 1 MB）' : ''}${req.env ? ` · 环境：${escapeHtml(req.env)}` : ''}</span></div>`;
+    html += `<div class="debug-block"><h4>响应 Header</h4>${debugHeaderLines(res.headers)}</div>`;
+    html += `<div class="debug-block"><h4>响应 Body</h4><pre class="body-preview">${escapeHtml(formatBody({ body: res.body }))}</pre></div>`;
+  }
+  html += `<div class="debug-block"><h4>实际发出的请求</h4><div class="trace-summary">${escapeHtml(req.method)} ${escapeHtml(req.url)}</div>${debugHeaderLines(req.headers)}${req.body ? `<pre class="body-preview" style="margin-top:8px">${escapeHtml(formatBody({ body: req.body }))}</pre>` : ''}</div>`;
+  $('debug-result').innerHTML = html;
+  $('debug-result').classList.remove('hidden');
+}
+
+$('debug-open').onclick = () => openDebug();
+$('close-debug').onclick = closeDebug;
+$('cancel-debug').onclick = closeDebug;
+$('debug-backdrop').onclick = (event) => { if (event.target === $('debug-backdrop')) closeDebug(); };
+$('debug-add-query').onclick = () => addHeaderRow({}, 'debug-query', 'debug-query-empty', ['page', '1']);
+$('debug-add-header').onclick = () => addHeaderRow({}, 'debug-headers', 'debug-headers-empty');
+$('debug-form').addEventListener('input', (event) => {
+  if (event.target.dataset.param !== undefined) debugSession.params[event.target.dataset.param] = event.target.value.trim();
+  if (event.target.id === 'debug-path') renderDebugParams();
+  updateDebugUrl();
+});
+$('debug-form').addEventListener('click', () => setTimeout(updateDebugUrl)); // 添加 / 删除 / 勾选 Query 行之后刷新地址
+$('debug-env').onchange = updateDebugUrl;
+$('debug-method').onchange = () => { syncDebugBody(); updateDebugUrl(); };
+$('debug-body-type').onchange = syncDebugBody;
+$('debug-format').onclick = () => {
+  try { $('debug-body').value = JSON.stringify(JSON.parse($('debug-body').value), null, 2); }
+  catch { toast('Body 不是有效的 JSON，无法格式化', true); }
+};
+$('debug-result').onclick = (event) => {
+  if (event.target.id === 'debug-toggle-sensitive') { state.showSensitive = !state.showSensitive; renderDebugResult(); }
+};
+$('debug-form').onsubmit = async (event) => {
+  event.preventDefault();
+  const proxy = selected();
+  if (!proxy) return;
+  const missing = debugParamNames($('debug-path').value).filter((name) => !debugSession.params[name]);
+  $('debug-error').classList.add('hidden');
+  if (missing.length) {
+    $('debug-error').textContent = `请先填写路径参数：${missing.map((n) => (n === '*' ? '通配 *' : `:${n}`)).join('、')}`;
+    $('debug-error').classList.remove('hidden');
+    return;
+  }
+  saveDebugDraft();
+  $('send-debug').disabled = true;
+  $('send-debug').textContent = '发送中…';
+  try {
+    debugSession.last = await window.relay.debugSend(proxy.id, {
+      env: $('debug-env').value, method: $('debug-method').value, path: debugResolvedPath(),
+      query: debugRows('debug-query'), headers: debugRows('debug-headers'), useProxyHeaders: $('debug-use-proxy-headers').checked,
+      bodyType: $('debug-body-type').value, body: $('debug-body').value,
+    });
+    renderDebugResult();
+    $('debug-result').scrollIntoView({ block: 'nearest' });
+  } catch (err) {
+    $('debug-result').classList.add('hidden');
+    $('debug-error').textContent = err.message;
+    $('debug-error').classList.remove('hidden');
+  } finally {
+    $('send-debug').disabled = false;
+    $('send-debug').textContent = '▶ 发送';
+  }
+};
+
 function renderRules() {
   const proxy = selected();
   const rules = proxy?.rules || [];
@@ -167,7 +344,7 @@ function renderRules() {
     <code class="rule-path" title="${escapeHtml(rule.path)}">${escapeHtml(rule.path)}</code>
     <span class="rule-summary-cell">${scenarioSelect(rule)}<span class="rule-summary" title="${escapeHtml(ruleSummary(rule))}">${escapeHtml(ruleSummary(rule))}</span></span>
     ${isMock(proxy) ? '<span></span>' : `<span class="mode-switch"><button type="button" class="mode-btn${rule.mode === 'proxy' ? ' active' : ''}" data-rule-action="mode" data-mode="proxy">代理</button><button type="button" class="mode-btn mock${rule.mode === 'mock' ? ' active' : ''}" data-rule-action="mode" data-mode="mock">Mock</button></span>`}
-    <button type="button" class="icon-button" data-rule-action="edit">编辑</button>
+    <span class="rule-actions">${isMock(proxy) ? '' : '<button type="button" class="icon-button" data-rule-action="debug" title="用这个接口调试：自定义参数并发送真实请求">调试</button>'}<button type="button" class="icon-button" data-rule-action="edit">编辑</button></span>
   </div>`).join('');
 }
 
@@ -463,10 +640,10 @@ function selectProxy(id) {
   renderDetail();
 }
 
-function addHeaderRow(header = {}, editorId = 'headers-editor', emptyId = 'headers-empty') {
+function addHeaderRow(header = {}, editorId = 'headers-editor', emptyId = 'headers-empty', placeholders = ['Authorization', 'Bearer your-token']) {
   const row = document.createElement('div');
   row.className = 'header-row';
-  row.innerHTML = `<input class="header-enabled" type="checkbox" ${header.enabled === false ? '' : 'checked'} title="是否启用" aria-label="启用 Header"><input class="header-name" value="${escapeHtml(header.name || '')}" placeholder="Authorization" aria-label="Header 名称"><input class="header-value" value="${escapeHtml(header.value || '')}" placeholder="Bearer your-token" aria-label="Header 值"><button class="remove-header" type="button" title="删除" aria-label="删除 Header">×</button>`;
+  row.innerHTML = `<input class="header-enabled" type="checkbox" ${header.enabled === false ? '' : 'checked'} title="是否启用" aria-label="启用 Header"><input class="header-name" value="${escapeHtml(header.name || '')}" placeholder="${placeholders[0]}" aria-label="名称"><input class="header-value" value="${escapeHtml(header.value || '')}" placeholder="${placeholders[1]}" aria-label="值"><button class="remove-header" type="button" title="删除" aria-label="删除 Header">×</button>`;
   row.querySelector('.remove-header').onclick = () => {
     row.remove();
     $(emptyId).classList.toggle('hidden', $(editorId).children.length > 0);
@@ -601,6 +778,9 @@ function openModal(id = null) {
   $('proxy-port').value = proxy?.port || (mock ? 9001 : 8009) + listItems().length;
   $('proxy-prefix').value = proxy?.prefix || '/cgw/aiadmin';
   $('proxy-target').value = proxy?.target || 'http://10.0.7.33:8106';
+  $('env-editor').innerHTML = '';
+  (proxy?.environments || []).forEach((env) => addEnvRow(env, env.name === proxy.activeEnv));
+  syncEnvMode();
   $('strip-prefix').checked = proxy ? proxy.stripPrefix : true;
   $('auto-start').checked = proxy?.autoStart || false;
   $('headers-editor').innerHTML = '';
@@ -612,6 +792,38 @@ function openModal(id = null) {
   $('modal-backdrop').classList.remove('hidden');
   $('proxy-name').focus();
 }
+
+// 多环境：有环境行时由当前选中的环境决定后端地址，隐藏单独的「后端地址」输入框
+function envRows() { return [...$('env-editor').querySelectorAll('.env-row')]; }
+function syncEnvMode() {
+  const multi = envRows().length > 0 && state.kind !== 'mock';
+  $('proxy-target').closest('label').classList.toggle('hidden', multi || state.kind === 'mock');
+  $('proxy-target').required = !multi && state.kind !== 'mock';
+}
+function addEnvRow(env = {}, active = false) {
+  const row = document.createElement('div');
+  row.className = 'header-row env-row';
+  row.innerHTML = `<input type="radio" name="env-active" class="header-enabled env-active" title="设为当前环境"${active ? ' checked' : ''}><input class="env-name" maxlength="20" placeholder="环境名，如 测试" value="${escapeHtml(env.name || '')}"><input class="env-target" placeholder="http://10.0.7.33:8106" value="${escapeHtml(env.target || '')}"><button type="button" class="remove-header" title="删除环境">×</button>`;
+  $('env-editor').appendChild(row);
+  return row;
+}
+$('add-env').onclick = () => {
+  if (!envRows().length) { // 从单地址转为多环境：把现有地址作为第一个环境
+    addEnvRow({ name: '默认', target: $('proxy-target').value }, true);
+  }
+  addEnvRow().querySelector('.env-name').focus();
+  syncEnvMode();
+};
+$('env-editor').onclick = (event) => {
+  const button = event.target.closest('.remove-header');
+  if (!button) return;
+  const row = button.closest('.env-row');
+  if (envRows().length === 1) $('proxy-target').value = row.querySelector('.env-target').value; // 删光后回到单地址
+  const wasActive = row.querySelector('.env-active').checked;
+  row.remove();
+  if (wasActive && envRows().length) envRows()[0].querySelector('.env-active').checked = true;
+  syncEnvMode();
+};
 
 function closeModal() { $('modal-backdrop').classList.add('hidden'); }
 
@@ -634,7 +846,7 @@ $('close-modal').onclick = closeModal;
 $('cancel-modal').onclick = closeModal;
 $('modal-backdrop').onclick = (event) => { if (event.target === $('modal-backdrop')) closeModal(); };
 document.addEventListener('keydown', (event) => {
-  if (event.key === 'Escape') { closeTrace(); closeModal(); closeGlobalHeaders(); closeProjectModal(); closeRuleModal(); closeAiModal(); closeDocs(); closeTraceMock(); }
+  if (event.key === 'Escape') { closeTrace(); closeModal(); closeGlobalHeaders(); closeProjectModal(); closeRuleModal(); closeDebug(); closeAiModal(); closeDocs(); closeTraceMock(); }
   if (event.key === 'Enter' && event.target.classList.contains('proxy-card')) selectProxy(event.target.dataset.id);
   if (event.key === 'Enter' && event.target.dataset.traceId) openTrace(event.target.dataset.traceId);
 });
@@ -646,6 +858,12 @@ $('proxy-list').onclick = (event) => {
   if (action) { event.stopPropagation(); toggleProxy(action.dataset.id); return; }
   const card = event.target.closest('.proxy-card');
   if (card) selectProxy(card.dataset.id);
+};
+$('env-select').onchange = async (event) => {
+  const proxy = selected();
+  if (!proxy) return;
+  try { await window.relay.switchProxyEnv(proxy.id, event.target.value); toast(`已切换到环境「${event.target.value}」${running(proxy.id) ? '，立即生效' : ''}`); }
+  catch (err) { handleError(err); renderDetail(); }
 };
 $('toggle-proxy').onclick = () => { if (selected()) toggleProxy(state.selectedId); };
 $('add-header').onclick = () => addHeaderRow();
@@ -710,6 +928,8 @@ $('proxy-form').onsubmit = async (event) => {
     port: Number($('proxy-port').value),
     prefix: $('proxy-prefix').value,
     target: $('proxy-target').value,
+    environments: envRows().map((row) => ({ name: row.querySelector('.env-name').value, target: row.querySelector('.env-target').value })),
+    activeEnv: envRows().find((row) => row.querySelector('.env-active').checked)?.querySelector('.env-name').value.trim() || null,
     stripPrefix: $('strip-prefix').checked,
     autoStart: $('auto-start').checked,
     headers: [...$('headers-editor').querySelectorAll('.header-row')].map((row) => ({
@@ -874,6 +1094,7 @@ $('rules-list').onclick = async (event) => {
   if (!rule) return;
   const action = target.dataset.ruleAction;
   if (action === 'edit') return openRuleModal(rule.id);
+  if (action === 'debug') return openDebug(rule);
   if (action === 'mode') {
     if (rule.mode === target.dataset.mode) return;
     rule.mode = target.dataset.mode;

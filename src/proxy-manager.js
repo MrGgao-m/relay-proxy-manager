@@ -54,23 +54,48 @@ function validateMockService(input, currentId) {
   };
 }
 
-function validateProxy(input, currentId) {
-  const name = String(input.name || '').trim();
-  const target = String(input.target || '').trim();
-  const prefix = String(input.prefix || '/proxy').trim();
-  const port = Number(input.port);
-
-  if (!name || name.length > 40) throw new Error('请输入不超过 40 个字符的代理名称。');
-  validatePort(port);
+function validateTarget(value) {
+  const target = String(value || '').trim();
   let url;
   try { url = new URL(target); } catch { throw new Error('后端地址格式不正确，需包含 http:// 或 https://。'); }
   if (!['http:', 'https:'].includes(url.protocol) || !url.hostname) throw new Error('后端地址只支持 HTTP / HTTPS，例如 http://10.0.7.33:8106。');
   if (url.username || url.password) throw new Error('后端地址不能包含账号或密码。');
   if (url.search || url.hash || (url.pathname !== '/' && url.pathname.endsWith('/'))) throw new Error('后端地址末尾不能带 /、查询参数或 # 锚点。');
+  return url.origin;
+}
+
+/** 多环境：只切换后端地址。返回规范化的环境列表与当前环境；没有配置环境时返回 null。 */
+function validateEnvironments(input) {
+  if (!Array.isArray(input.environments) || !input.environments.length) return null;
+  if (input.environments.length > 20) throw new Error('一个代理最多配置 20 个环境。');
+  const names = new Set();
+  const environments = input.environments.map((item) => {
+    const name = String(item?.name || '').trim();
+    if (!name || name.length > 20) throw new Error('请输入不超过 20 个字符的环境名称。');
+    if (names.has(name)) throw new Error(`环境名称「${name}」重复，请换一个名称。`);
+    names.add(name);
+    try { return { name, target: validateTarget(item.target) }; }
+    catch (err) { throw new Error(`环境「${name}」：${err.message}`); }
+  });
+  const activeEnv = names.has(input.activeEnv) ? input.activeEnv : environments[0].name;
+  return { environments, activeEnv };
+}
+
+function validateProxy(input, currentId) {
+  const name = String(input.name || '').trim();
+  const prefix = String(input.prefix || '/proxy').trim();
+  const port = Number(input.port);
+
+  if (!name || name.length > 40) throw new Error('请输入不超过 40 个字符的代理名称。');
+  validatePort(port);
+  // 配置了环境时，target 始终等于当前环境的地址，转发、日志、列表等沿用 target 即可
+  const env = validateEnvironments(input);
+  const target = env ? env.environments.find((e) => e.name === env.activeEnv).target : validateTarget(input.target);
   if (prefix === '/' || !/^\/[a-zA-Z0-9/_-]*$/.test(prefix) || prefix.endsWith('/') || prefix.includes('//')) throw new Error('路径前缀须以 / 开头，末尾不带 /，例如 /cgw/aiadmin。');
 
   return {
-    id: currentId || randomUUID(), name, host: validateHost(input.host), port, target: url.origin, prefix,
+    id: currentId || randomUUID(), name, host: validateHost(input.host), port, target, prefix,
+    environments: env ? env.environments : [], activeEnv: env ? env.activeEnv : null,
     stripPrefix: input.stripPrefix !== false,
     autoStart: Boolean(input.autoStart),
     headers: validateHeaders(Array.isArray(input.headers) ? input.headers : []),
@@ -155,6 +180,17 @@ class ProxyManager {
     for (const header of this.projectHeaders.get(config.projectId || DEFAULT_PROJECT) || []) merged.set(header.name.toLowerCase(), header);
     for (const header of config.headers) merged.set(header.name.toLowerCase(), header);
     return [...merged.values()];
+  }
+
+  /** 切换环境：运行中的代理即时改指向新的后端地址，不重启、不断开本地端口。 */
+  setTarget(id, target, activeEnv) {
+    const entry = this.running.get(id);
+    if (!entry) return;
+    const from = entry.config.target;
+    entry.config.target = target;
+    entry.config.activeEnv = activeEnv || null;
+    this.log(id, 'success', 'system', `已切换环境${activeEnv ? `「${activeEnv}」` : ''}：${from} → ${target}`);
+    this.onState();
   }
 
   /** 运行中即时生效：中间件每次请求都从这里读取规则，无需重启。 */
@@ -286,7 +322,8 @@ class ProxyManager {
   _proxyMiddleware(config) {
     return createProxyMiddleware({
       pathFilter: (pathname, req) => inPrefix(req.originalUrl, config.prefix),
-      target: config.target, changeOrigin: true, xfwd: true, proxyTimeout: MAX_DURATION, timeout: MAX_DURATION,
+      target: config.target, router: () => config.target, // 切换环境时直接改 config.target，下一个请求立即生效
+      changeOrigin: true, xfwd: true, proxyTimeout: MAX_DURATION, timeout: MAX_DURATION,
       buffer: { pipe: (proxyReq) => { /* Body 由 proxyReq 显式写入，GET 请求由 proxyReq 默认结束 */ } },
       pathRewrite: (requestPath, req) => {
         const backendPath = config.stripPrefix ? requestPath.slice(config.prefix.length) || '/' : requestPath;
@@ -385,7 +422,7 @@ class ProxyManager {
     this.running.set(config.id, { server, config });
     this.log(config.id, 'success', 'system', config.kind === 'mock'
       ? `Mock 服务已启动：http://${displayHost(config.host)}:${config.port}`
-      : `代理已启动：http://${displayHost(config.host)}:${config.port}${config.prefix} → ${config.target}`);
+      : `代理已启动：http://${displayHost(config.host)}:${config.port}${config.prefix} → ${config.target}${config.activeEnv ? `（环境：${config.activeEnv}）` : ''}`);
     this.onState();
   }
 

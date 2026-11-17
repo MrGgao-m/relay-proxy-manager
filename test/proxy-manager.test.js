@@ -191,3 +191,47 @@ test('本机 IP：绑定到本机非回环 IPv4 后可通过该地址访问；�
   try { assert.equal((await fetch(`http://${ip}:18098/other`)).status, 404); }
   finally { await manager.stopAll(); }
 });
+
+test('多环境校验：target 取当前环境，名称/地址/数量非法被拒绝，无环境时兼容旧配置', () => {
+  const envs = [{ name: '测试', target: 'http://127.0.0.1:19101' }, { name: '预发', target: 'https://pre.example.com:8443' }];
+  const legacy = config();
+  assert.deepEqual([legacy.environments, legacy.activeEnv], [[], null], '旧配置不带环境');
+
+  const picked = config({ environments: envs, activeEnv: '预发', target: 'http://ignored:1' });
+  assert.equal(picked.target, 'https://pre.example.com:8443', 'target 跟随当前环境，忽略单独的 target');
+  assert.equal(picked.activeEnv, '预发');
+  assert.equal(config({ environments: envs, activeEnv: '不存在' }).activeEnv, '测试', '当前环境无效时回退到第一个');
+  assert.equal(config({ environments: envs }).target, 'http://127.0.0.1:19101');
+
+  assert.throws(() => config({ environments: [{ name: '', target: 'http://a:1' }] }), /环境名称/);
+  assert.throws(() => config({ environments: [{ name: 'x'.repeat(21), target: 'http://a:1' }] }), /环境名称/);
+  assert.throws(() => config({ environments: [{ name: 'A', target: 'http://a:1' }, { name: 'A', target: 'http://b:1' }] }), /重复/);
+  assert.throws(() => config({ environments: [{ name: 'A', target: '10.0.7.33:8106' }] }), /环境「A」.*格式/);
+  assert.throws(() => config({ environments: [{ name: 'A', target: 'http://a:1/' + 'x/' }] }), /环境「A」/);
+  assert.throws(() => config({ environments: Array.from({ length: 21 }, (_, i) => ({ name: `e${i}`, target: 'http://a:1' })) }), /最多/);
+});
+
+test('多环境：运行中切换环境立即改指向，不重启、不换端口', async (t) => {
+  const hits = { a: [], b: [] };
+  const servers = [['a', 19111], ['b', 19112]].map(([key, port]) => {
+    const server = http.createServer((req, res) => { hits[key].push(req.url); res.end(key); });
+    return new Promise((resolve) => server.listen(port, '127.0.0.1', () => resolve(server)));
+  });
+  const [sa, sb] = await Promise.all(servers);
+  t.after(() => { sa.close(); sb.close(); });
+  const logs = [];
+  const manager = new ProxyManager((log) => logs.push(log), () => {}, () => {});
+  const proxy = config({ id: 'env1', port: 18111, prefix: '/api', environments: [{ name: '甲', target: 'http://127.0.0.1:19111' }, { name: '乙', target: 'http://127.0.0.1:19112' }] });
+  await manager.start(proxy);
+  t.after(() => manager.stop('env1'));
+  const get = async () => (await fetch('http://127.0.0.1:18111/api/x?q=1', { headers: { Connection: 'close' } })).text();
+
+  assert.equal(await get(), 'a');
+  manager.setTarget('env1', 'http://127.0.0.1:19112', '乙');
+  assert.equal(await get(), 'b', '切换后下一个请求走新环境');
+  assert.deepEqual(hits, { a: ['/x?q=1'], b: ['/x?q=1'] });
+  assert.ok(logs.some((l) => l.event === 'system' && l.message.includes('已切换环境「乙」')));
+  assert.ok(logs.some((l) => l.event === 'request' && l.target === 'http://127.0.0.1:19112/x?q=1'), '请求日志显示新的后端地址');
+  assert.ok(logs.some((l) => l.message.includes('（环境：甲）')), '启动日志带环境名');
+  manager.setTarget('not-running', 'http://127.0.0.1:1', 'x'); // 未运行的代理：安全地忽略
+});

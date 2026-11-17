@@ -31,7 +31,7 @@
       <div class="search-box"><span>⌕</span><input id="proxy-search" type="search" placeholder="搜索名称、端口或地址" aria-label="搜索代理"></div>
       <div class="list-caption"><span id="list-caption-label">全部代理</span> <span id="list-caption-count">0</span></div>
       <div id="proxy-list" class="proxy-list"></div>
-      <div class="sidebar-footer"><div class="connection"><span class="live-dot"></span><div><strong>仅监听本机</strong><small>配置保存在当前电脑</small></div></div><span class="version">v2.0</span></div>
+      <div class="sidebar-footer"><div class="connection"><span class="live-dot"></span><div><strong>仅监听本机</strong><small>配置保存在当前电脑</small></div></div><span class="version">v2.1</span></div>
     </aside>
 
     <section class="workspace">
@@ -47,7 +47,7 @@
       <div id="proxy-detail" class="proxy-detail hidden">
         <div class="detail-header">
           <div class="detail-title"><span id="detail-status" class="status-dot"></span><div><div class="title-line"><h2 id="detail-name"></h2><span id="status-label" class="status-label"></span></div><p id="detail-target"></p></div></div>
-          <div class="detail-actions"><button id="duplicate-mock" class="secondary-button hidden">复制</button><button id="edit-proxy" class="secondary-button">编辑配置</button><button id="toggle-proxy" class="primary-button">▶ 启动代理</button></div>
+          <div class="detail-actions"><label id="env-switch" class="env-switch hidden" title="切换后端地址，运行中立即生效"><span>环境</span><select id="env-select"></select></label><button id="duplicate-mock" class="secondary-button hidden">复制</button><button id="edit-proxy" class="secondary-button">编辑配置</button><button id="toggle-proxy" class="primary-button">▶ 启动代理</button></div>
         </div>
 
         <div class="stats-grid">
@@ -60,7 +60,7 @@
         <div class="route-card"><div class="route-label"><span id="route-title">转发规则</span> <span id="route-hint"></span></div><div class="route-flow"><div class="endpoint"><span class="method-tag">LOCAL</span><code id="local-url"></code><button id="copy-url" class="copy-button" title="复制本地地址">复制</button></div><div id="route-arrow" class="route-arrow">⟶</div><div id="route-target" class="endpoint target"><span class="method-tag">TARGET</span><code id="target-url"></code></div></div></div>
 
         <div class="rules-panel">
-          <div class="rules-heading"><div><h3>接口规则 <span id="rules-count" class="count-badge">0</span></h3><p>未配置的接口默认正常代理；切为 Mock 后直接返回本地数据，不请求后端，保存即生效。</p></div><button id="add-rule" type="button" class="header-add">＋ 添加规则</button></div>
+          <div class="rules-heading"><div><h3>接口规则 <span id="rules-count" class="count-badge">0</span></h3><p>未配置的接口默认正常代理；切为 Mock 后直接返回本地数据，不请求后端，保存即生效。</p></div><span class="rules-heading-actions"><button id="debug-open" type="button" class="header-add">▶ 接口调试</button> <button id="add-rule" type="button" class="header-add">＋ 添加规则</button></span></div>
           <div id="rules-list" class="rules-list"></div>
           <div id="rules-empty" class="rules-empty">暂无规则，所有请求都会转发到真实后端。也可以在请求详情里点「转为 Mock 规则」。</div>
         </div>
@@ -84,6 +84,8 @@
         <label>本机 IP <span>默认 localhost</span><input id="proxy-host" list="local-ips" placeholder="localhost" autocomplete="off"><datalist id="local-ips"></datalist><small>代理监听的地址。后端需通过本机 IPv4 访问时，填该 IPv4（或 0.0.0.0）；localhost 仅本机可访问。</small></label>
         <div class="form-row"><label>本地端口 <span>1–65535</span><input id="proxy-port" type="number" required min="1" max="65535" value="8009"></label><label class="prefix-field" data-proxy-only>路径前缀 <span>例如 /cgw/aiadmin</span><input id="proxy-prefix" required placeholder="/cgw/aiadmin"></label></div>
         <label data-proxy-only>后端地址 <span>包含协议，末尾不带 /</span><input id="proxy-target" required placeholder="http://10.0.7.33:8106"><small>支持 HTTP / HTTPS；请求路径和查询参数会原样保留。</small></label>
+        <label class="toggle-row" data-proxy-only><div><strong>多环境</strong><small>同一个代理切换不同后端地址，Header 和接口规则不随环境变化</small></div><button id="add-env" type="button" class="header-add">＋ 添加环境</button></label>
+        <div id="env-editor" class="headers-editor" data-proxy-only></div>
         <label class="toggle-row" data-proxy-only><div><strong>自定义请求 Header</strong><small>Token、Cookie 等，转发时覆盖浏览器中的同名值</small></div><button id="add-header" type="button" class="header-add">＋ 添加</button></label>
         <div id="headers-editor" class="headers-editor" data-proxy-only></div>
         <div id="headers-empty" class="headers-empty" data-proxy-only>未添加 Header，将保持浏览器原有请求头。</div>
@@ -128,6 +130,27 @@
         <label>项目名称 <span>1–40 个字符</span><input id="project-name" required maxlength="40" placeholder="例如：患者管理系统"></label>
         <div id="project-error" class="form-error hidden"></div>
         <div class="modal-actions"><span class="action-spacer"></span><button type="button" id="cancel-project" class="secondary-button">取消</button><button type="submit" id="save-project" class="primary-button">保存</button></div>
+      </form>
+    </section>
+  </div>
+  <div id="debug-backdrop" class="modal-backdrop hidden">
+    <section class="modal rule-modal debug-modal" role="dialog" aria-modal="true" aria-labelledby="debug-title">
+      <div class="modal-header"><div><span class="eyebrow">INTERFACE DEBUG</span><h2 id="debug-title">接口调试</h2></div><button id="close-debug" class="modal-close" type="button" aria-label="关闭">×</button></div>
+      <form id="debug-form">
+        <div class="debug-line"><select id="debug-env" aria-label="环境" title="发送到哪个环境"></select><select id="debug-method" aria-label="请求方法"><option>GET</option><option>POST</option><option>PUT</option><option>PATCH</option><option>DELETE</option><option>HEAD</option><option>OPTIONS</option></select><input id="debug-path" required placeholder="/patient/:id" autocomplete="off" aria-label="接口路径"></div>
+        <div id="debug-url" class="debug-url"></div>
+        <div id="debug-params-block" class="hidden"><div class="debug-section">路径参数</div><div id="debug-params" class="headers-editor"></div></div>
+        <label class="toggle-row"><div><strong>Query 参数</strong><small>拼在地址后面，自动 URL 编码</small></div><button id="debug-add-query" type="button" class="header-add">＋ 添加</button></label>
+        <div id="debug-query" class="headers-editor"></div>
+        <div id="debug-query-empty" class="headers-empty">没有 Query 参数。</div>
+        <label class="toggle-row"><div><strong>请求 Header</strong><small>与代理 Header 同名时，以这里为准</small></div><button id="debug-add-header" type="button" class="header-add">＋ 添加</button></label>
+        <div id="debug-headers" class="headers-editor"></div>
+        <div id="debug-headers-empty" class="headers-empty">没有额外 Header。</div>
+        <label class="toggle-row"><div><strong>附带代理 / 项目 Header</strong><small>Token、Cookie 等，与真实转发时一致</small></div><input id="debug-use-proxy-headers" type="checkbox" class="switch" checked></label>
+        <div class="form-row"><label>Body 类型<select id="debug-body-type"><option value="none">无</option><option value="json">JSON</option><option value="text">文本</option><option value="form">表单</option></select></label><label id="debug-body-field">请求 Body <span><button id="debug-format" type="button" class="link-button">格式化 JSON</button></span><textarea id="debug-body" rows="6" spellcheck="false" placeholder='{"name":"张三"}'></textarea></label></div>
+        <div id="debug-error" class="form-error hidden"></div>
+        <div id="debug-result" class="hidden"></div>
+        <div class="modal-actions"><span class="action-spacer"></span><button type="button" id="cancel-debug" class="secondary-button">关闭</button><button type="submit" id="send-debug" class="primary-button">▶ 发送</button></div>
       </form>
     </section>
   </div>

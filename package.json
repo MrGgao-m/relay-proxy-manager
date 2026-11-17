@@ -1,6 +1,6 @@
 {
   "name": "relay-proxy-manager",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "private": true,
   "description": "多代理、实时日志的本地开发代理管理器",
   "homepage": "https://github.com/MrGgao-m/relay-proxy-manager",
@@ -13,7 +13,7 @@
   "license": "MIT",
   "scripts": {
     "start": "electron .",
-    "test": "node --test test/proxy-manager.test.js test/rules.test.js test/template.test.js test/store.test.js test/mock-io.test.js test/mock.test.js test/docs.test.js test/ai.test.js test/main-ipc.test.js test/docs-ai-ipc.test.js test/e2e.test.js",
+    "test": "node --test test/proxy-manager.test.js test/debug-client.test.js test/rules.test.js test/template.test.js test/store.test.js test/mock-io.test.js test/mock.test.js test/docs.test.js test/ai.test.js test/main-ipc.test.js test/docs-ai-ipc.test.js test/e2e.test.js",
     "test:ui": "node test/electron-smoke.js",
     "pack": "electron-builder --dir",
     "predist": "node node_modules/electron/install.js",

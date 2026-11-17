@@ -284,3 +284,64 @@ test('IPC：Mock 场景——保存多个场景、一键切换即时生效、重
 });
 
 async function settleLogs() { await new Promise((r) => setTimeout(r, 60)); }
+
+test('IPC：多环境保存、切换（运行中即时生效并持久化）、编辑保留环境、非法输入被拒绝', async (t) => {
+  const { call } = await boot(t);
+  const hitsA = await backend(t, 19330, json({ env: 'A' }));
+  const hitsB = await backend(t, 19331, json({ env: 'B' }));
+  const environments = [{ name: '测试', target: 'http://127.0.0.1:19330' }, { name: '预发', target: 'http://127.0.0.1:19331' }];
+  const proxy = await call('proxy:save', proxyInput({ port: 18330, target: '', environments, activeEnv: '测试' }));
+  assert.equal(proxy.target, 'http://127.0.0.1:19330');
+  await call('proxy:start', proxy.id);
+  const ask = async () => (await (await fetch('http://127.0.0.1:18330/api/list')).json()).env;
+  assert.equal(await ask(), 'A');
+
+  const switched = await call('proxy:switch-env', proxy.id, '预发');
+  assert.equal(switched.target, 'http://127.0.0.1:19331');
+  assert.equal(await ask(), 'B', '运行中切换即时生效');
+  assert.deepEqual([hitsA.length, hitsB.length], [1, 1]);
+  const state = await call('state:get');
+  assert.deepEqual([state.proxies[0].activeEnv, state.proxies[0].target], ['预发', 'http://127.0.0.1:19331']);
+
+  await call('rules:save', proxy.id, [{ method: 'GET', path: '/m', response: { body: '{"ok":1}' } }]);
+  const edited = await call('proxy:save', proxyInput({ port: 18330, name: '改名', target: '', environments, activeEnv: '预发' }), proxy.id);
+  assert.equal(edited.activeEnv, '预发');
+  assert.equal((await call('rules:get', proxy.id)).length, 1, '编辑代理不丢规则');
+
+  await assert.rejects(call('proxy:switch-env', proxy.id, '不存在'), /找不到环境/);
+  await assert.rejects(call('proxy:switch-env', 'nope', '测试'), /找不到此代理/);
+  await assert.rejects(call('proxy:save', proxyInput({ port: 18331, environments: [{ name: 'X', target: 'bad' }] })), /环境「X」/);
+
+  // 清空环境后回到单地址模式
+  const single = await call('proxy:save', proxyInput({ port: 18330, target: 'http://127.0.0.1:19330', environments: [] }), proxy.id);
+  assert.deepEqual([single.environments, single.activeEnv], [[], null]);
+});
+
+test('IPC：接口调试对所选环境发真实请求，自动带代理 Header，代理不必运行', async (t) => {
+  const { call } = await boot(t);
+  const seen = { a: [], b: [] };
+  for (const [key, port] of [['a', 19350], ['b', 19351]]) {
+    await backend(t, port, (req, res) => { seen[key].push({ url: req.url, auth: req.headers.authorization, mine: req.headers['x-mine'] }); res.setHeader('Content-Type', 'application/json'); res.end(JSON.stringify({ env: key })); });
+  }
+  const environments = [{ name: '测试', target: 'http://127.0.0.1:19350' }, { name: '本地', target: 'http://127.0.0.1:19351' }];
+  const proxy = await call('proxy:save', proxyInput({ port: 18350, target: '', environments, activeEnv: '测试', headers: [{ name: 'Authorization', value: 'Bearer P', enabled: true }] }));
+  await call('rules:save', proxy.id, [{ method: 'GET', path: '/item/:id', response: { body: '{"from":"mock"}' } }]); // 即使接口被 Mock，调试也拿到后端的真实数据
+
+  const input = { method: 'GET', path: '/item/5', query: [{ name: 'v', value: '1' }], headers: [{ name: 'X-Mine', value: 'm', enabled: true }], useProxyHeaders: true };
+  const a = await call('debug:send', proxy.id, { ...input, env: '测试' });
+  assert.deepEqual([a.error, JSON.parse(a.response.body)], [null, { env: 'a' }]);
+  assert.deepEqual(seen.a, [{ url: '/item/5?v=1', auth: 'Bearer P', mine: 'm' }], '代理 Header 与调试 Header 都带上了');
+  const b = await call('debug:send', proxy.id, { ...input, env: '本地', useProxyHeaders: false });
+  assert.deepEqual(JSON.parse(b.response.body), { env: 'b' });
+  assert.equal(seen.b[0].auth, undefined, '关闭「附带代理 Header」后不带 Token');
+
+  const logs = await call('logs:get', proxy.id);
+  assert.ok(logs.some((l) => l.message.includes('[调试]') && l.message.includes('→ 200') && l.message.includes('环境：本地')));
+  const down = await call('debug:send', proxy.id, { method: 'GET', path: '/x', env: '测试', useProxyHeaders: true });
+  assert.equal(down.error, null);
+
+  await assert.rejects(call('debug:send', proxy.id, { method: 'GET', path: 'x' }), /以 \/ 开头/);
+  const mock = await call('mock:save', { name: 'M', port: 18351 });
+  await assert.rejects(call('debug:send', mock.id, { path: '/x' }), /不需要调试/);
+  await assert.rejects(call('debug:send', 'nope', { path: '/x' }), /找不到/);
+});

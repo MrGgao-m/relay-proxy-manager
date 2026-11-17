@@ -6,6 +6,7 @@ const { randomUUID } = require('node:crypto');
 const fs = require('node:fs/promises');
 const { app, BrowserWindow, ipcMain, dialog, safeStorage } = require('electron');
 const { ProxyManager, validateProxy, validateMockService, validateHeaders } = require('./proxy-manager');
+const { buildDebugRequest, sendDebugRequest } = require('./debug-client');
 const { validateRules, validateRule, switchScenario, addScenario } = require('./rules');
 const { compileTemplate } = require('./template');
 const store = require('./store');
@@ -167,6 +168,18 @@ handle('proxy:save', async (input, id) => {
   publish();
   return proxy;
 });
+handle('proxy:switch-env', async (id, envName) => {
+  const found = id ? store.findProxy(config, id) : null;
+  if (!found) throw new Error('找不到此代理，它可能已被删除。');
+  const env = found.proxy.environments.find((e) => e.name === envName);
+  if (!env) throw new Error(`找不到环境「${envName}」。`);
+  found.proxy.activeEnv = env.name;
+  found.proxy.target = env.target;
+  await saveData();
+  manager.setTarget(id, env.target, env.name);
+  publish();
+  return found.proxy;
+});
 handle('proxy:delete', async (id) => {
   const { project, kind } = locate(id);
   if (kind !== 'proxy') throw new Error('这不是代理，请使用删除 Mock 服务。');
@@ -242,6 +255,19 @@ handle('mock:import', async () => {
   await saveData();
   publish();
   return report;
+});
+
+// ---------- 接口调试：对代理的某个环境发一次真实请求（代理不必运行）----------
+handle('debug:send', async (proxyId, input) => {
+  const found = locate(proxyId);
+  if (found.kind !== 'proxy') throw new Error('Mock 服务直接返回本地数据，不需要调试。');
+  const base = input?.useProxyHeaders === false ? [] : manager.effectiveHeaders(runtimeConfig(found)).filter((h) => h.enabled);
+  const request = buildDebugRequest(found.proxy, base, input || {});
+  const result = await sendDebugRequest(request);
+  const where = request.env ? `（环境：${request.env}）` : '';
+  if (result.error) manager.log(proxyId, 'error', 'system', `[调试] ${request.method} ${request.url} 失败：${result.error.message}${where}`);
+  else manager.log(proxyId, result.response.status >= 500 ? 'error' : result.response.status >= 400 ? 'warn' : 'success', 'system', `[调试] ${request.method} ${request.url} → ${result.response.status} · ${result.durationMs} ms${where}`);
+  return result;
 });
 
 // ---------- 接口规则（代理内手动 Mock）----------

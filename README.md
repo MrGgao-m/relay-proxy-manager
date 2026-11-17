@@ -10,6 +10,8 @@ Relay 是一个面向前端开发的**桌面本地代理管理器**（Electron�
 
 ### 多代理 · 跨域内置
 - 同时管理多个代理，每个代理独立的**本地端口**、**后端地址**、**路径前缀**（可选择转发时去掉前缀）。
+- **多环境**：一个代理可配置多个后端地址（如 测试 / 预发 / 生产），在详情页下拉框一键切换，运行中立即生效、无需重启；只切换后端地址，Header 与接口规则不随环境变化。
+- **接口调试**（类似 Apifox）：在接口规则里点「调试」，选环境、自定义路径参数 / Query / Header / Body，发送真实请求并查看后端的状态码、响应 Header 和 Body；会自动带上代理与项目 Header（可关闭），即使该接口当前被 Mock 也能拿到后端的真实数据。代理不需要启动。
 - 跨域处理开箱即用：自动响应 `OPTIONS` 预检；带 Cookie / `withCredentials` 的请求会回写具体 Origin 和 `Access-Control-Allow-Credentials`。
 - 可监听 `localhost`（固定绑定 `127.0.0.1`）或指定本机 IP / `0.0.0.0`，方便手机等局域网设备调试。
 - 支持「打开应用时自动启动」；端口冲突时记录启动失败日志。
@@ -113,17 +115,17 @@ npm start
 npm run dist
 ```
 
-产物输出到 `dist/`，文件名形如 `Relay-Proxy-2.0.0.exe`，双击即可运行，无需安装。
+产物输出到 `dist/`，文件名形如 `Relay-Proxy-2.1.0.exe`，双击即可运行，无需安装。
 
 ### 发布新版本
 
 发布由 GitHub Actions 自动完成（[`.github/workflows/release.yml`](.github/workflows/release.yml)）：
 
 ```bash
-# 1. 修改 package.json 中的 version，例如 2.0.1，并提交
+# 1. 修改 package.json 中的 version，例如 2.1.1，并提交
 # 2. 打标签并推送（标签必须与 version 一致）
-git tag v2.0.1
-git push origin v2.0.1
+git tag v2.1.1
+git push origin v2.1.1
 ```
 
 推送标签后，GitHub 会在 Windows 上依次执行测试、打包，并创建对应的 Release、上传 exe。

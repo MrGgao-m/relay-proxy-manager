@@ -82,3 +82,12 @@
 /* ===== v2.0：从真实响应生成 Mock ===== */
 .trace-actions{display:flex;gap:8px;align-items:center}
 #tm-backdrop .modal{max-width:100%}
+.env-switch{display:flex;align-items:center;gap:7px;font-size:11px;color:#82909f}.env-switch select{border:1px solid #dce4ec;border-radius:5px;padding:8px 10px;background:#fbfcfd;color:#3e5369;font-size:12px;max-width:180px}
+.env-row{grid-template-columns:25px minmax(80px,.6fr) minmax(130px,1.4fr) 25px}.modal .env-row input.env-active{display:inline-block}
+.rules-heading-actions{display:flex;gap:8px;flex-shrink:0}
+.rule-row{grid-template-columns:20px 62px minmax(120px,1.2fr) minmax(80px,1fr) auto auto}.rule-actions{display:flex;gap:6px}
+.debug-modal{width:760px}.debug-line{display:grid;grid-template-columns:130px 96px 1fr;gap:8px}.modal .debug-line select,.modal .debug-line input{margin-top:0}
+.debug-url{font-family:Consolas,monospace;font-size:10px;color:#758394;background:#f5f7f8;border:1px solid #e9eef1;border-radius:5px;padding:8px 10px;margin:9px 0 14px;word-break:break-all}
+.debug-section{font-size:11px;font-weight:600;color:#3e5369;margin:0 0 8px}.debug-param{display:grid;grid-template-columns:110px 1fr;gap:8px;align-items:center;margin-bottom:7px}.debug-param code{font-size:11px;color:#4881bc}.modal .debug-param input{margin:0;padding:8px 9px;font-size:11px}
+.debug-status{display:flex;align-items:baseline;gap:8px;border:1px solid #e2edf8;background:#f1f6fc;border-radius:5px;padding:11px 13px;margin:12px 0 4px;font-size:11px;color:#4f6a84}.debug-status strong{font-size:19px;font-weight:600}.debug-status span{font-size:10px;color:#8495a6}.debug-status.ok strong{color:#229273}.debug-status.redirect strong{color:#3975bb}.debug-status.bad strong{color:var(--red)}
+.debug-block{margin-top:14px}.debug-block h4{font-size:10px;color:#7d8fa2;font-weight:500;margin:0 0 8px}
